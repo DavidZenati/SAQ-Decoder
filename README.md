@@ -1,2 +1,2 @@
 # SAQ-Decoder
-TBA
+The code will be available soon
