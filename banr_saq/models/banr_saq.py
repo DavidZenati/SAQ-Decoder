@@ -31,11 +31,24 @@ class BANRSAQ(nn.Module):
     def build_tokens(self, syndrome: torch.Tensor, check_type: torch.Tensor, check_boundary: torch.Tensor, check_dist: torch.Tensor, patch_type: torch.Tensor, patch_index_per_check: torch.Tensor):
         s_tokens = self.emb_syn(syndrome.long()) + self.emb_check_type(check_type.long()) + self.emb_boundary(check_boundary.long()) + self.emb_dist(check_dist.long())
         s0 = torch.cat([self.global_token, s_tokens], dim=0)
-        n_patch = int(patch_type.max().item()) + 1
+        # IMPORTANT: do NOT infer number of patches from patch_type.max().
+        # If all patches are bulk, patch_type can be all zeros even when there are many patches.
+        n_patch_from_index = int(patch_index_per_check.max().item()) + 1
+        n_patch_from_type = int(patch_type.numel())
+        n_patch = max(n_patch_from_index, n_patch_from_type)
+
         patch_sum = torch.zeros(n_patch, s_tokens.shape[-1], device=s_tokens.device)
         patch_sum.index_add_(0, patch_index_per_check, s_tokens)
         cnt = torch.zeros(n_patch, device=s_tokens.device)
         cnt.index_add_(0, patch_index_per_check, torch.ones_like(patch_index_per_check, dtype=torch.float))
+
+        # Ensure patch_type aligns with inferred patch count.
+        if patch_type.numel() < n_patch:
+            pad = patch_type.new_zeros(n_patch - patch_type.numel())
+            patch_type = torch.cat([patch_type, pad], dim=0)
+        elif patch_type.numel() > n_patch:
+            patch_type = patch_type[:n_patch]
+
         l0 = self.init_patch(patch_sum / cnt.clamp_min(1).unsqueeze(-1)) + self.patch_emb(patch_type)
         return s0, l0
 
