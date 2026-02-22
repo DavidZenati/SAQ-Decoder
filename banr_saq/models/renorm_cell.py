@@ -50,14 +50,40 @@ class RenormCell(nn.Module):
         self.s_film = BoundaryFiLM(2 * dim, dim)
         self.l_film = BoundaryFiLM(dim, dim)
 
+    @staticmethod
+    def _align_1d_length(x: torch.Tensor, target_len: int) -> torch.Tensor:
+        """Pad/truncate a 1D tensor to target length, preserving dtype/device."""
+        if x.numel() == target_len:
+            return x
+        if x.numel() < target_len:
+            pad = x.new_zeros(target_len - x.numel())
+            return torch.cat([x, pad], dim=0)
+        return x[:target_len]
+
     def _syndrome_self_attention(self, s: torch.Tensor) -> torch.Tensor:
-        n = s.size(0)
-        out, _ = self.s_self(self.ln_s1(s).unsqueeze(0), self.ln_s1(s).unsqueeze(0), self.ln_s1(s).unsqueeze(0), need_weights=False)
+        out, _ = self.s_self(
+            self.ln_s1(s).unsqueeze(0),
+            self.ln_s1(s).unsqueeze(0),
+            self.ln_s1(s).unsqueeze(0),
+            need_weights=False,
+        )
         s = s + out.squeeze(0)
         return s + self.s_ff(self.ln_s2(s))
 
     def _logical_from_syndrome(self, s_no_global: torch.Tensor, l: torch.Tensor, edge_s2l: torch.Tensor) -> torch.Tensor:
         check_idx, patch_idx = edge_s2l
+        valid = (
+            (check_idx >= 0)
+            & (check_idx < s_no_global.size(0))
+            & (patch_idx >= 0)
+            & (patch_idx < l.size(0))
+        )
+        if not torch.any(valid):
+            return l + self.l_ff(self.ln_l2(l))
+
+        check_idx = check_idx[valid]
+        patch_idx = patch_idx[valid]
+
         q = self.q_l(self.ln_l1(l))[patch_idx]
         k = self.k_s(self.ln_s1(s_no_global))[check_idx]
         v = self.v_s(self.ln_s1(s_no_global))[check_idx]
@@ -68,6 +94,7 @@ class RenormCell(nn.Module):
         return l + self.l_ff(self.ln_l2(l))
 
     def _syndrome_from_logical(self, s_no_global: torch.Tensor, l: torch.Tensor, primary_patch: torch.Tensor) -> torch.Tensor:
+        primary_patch = self._align_1d_length(primary_patch, s_no_global.size(0)).clamp(0, max(l.size(0) - 1, 0))
         q = self.q_s(self.ln_s1(s_no_global))
         k = self.k_l(self.ln_l1(l))[primary_patch]
         v = self.v_l(self.ln_l1(l))[primary_patch]
@@ -77,15 +104,23 @@ class RenormCell(nn.Module):
     def forward(self, s: torch.Tensor, l: torch.Tensor, edges: ScaleEdges, bctx: BoundaryContext, primary_patch: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         s = self._syndrome_self_attention(s)
 
-        check_ctx = torch.cat([
-            self.check_ctx_emb(bctx.check_boundary + 4 * bctx.check_type),
-            self.check_ctx_emb(bctx.check_type),
-        ], dim=-1)
+        n_checks = s.size(0) - 1
+        check_boundary = self._align_1d_length(bctx.check_boundary, n_checks)
+        check_type = self._align_1d_length(bctx.check_type, n_checks)
+        patch_type = self._align_1d_length(bctx.patch_type, l.size(0))
+
+        check_ctx = torch.cat(
+            [
+                self.check_ctx_emb(check_boundary + 4 * check_type),
+                self.check_ctx_emb(check_type),
+            ],
+            dim=-1,
+        )
         s_no_global = self.s_film(s[1:], check_ctx)
 
         l = self._logical_from_syndrome(s_no_global, l, edges.edge_s2l)
         s_no_global = self._syndrome_from_logical(s_no_global, l, primary_patch)
-        l = self.l_film(l, self.patch_emb(bctx.patch_type))
+        l = self.l_film(l, self.patch_emb(patch_type))
 
         s = torch.cat([s[:1], s_no_global], dim=0)
         return s, l
