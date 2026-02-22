@@ -18,17 +18,28 @@ def scatter_mean(src: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch
 
 
 def scatter_max(src: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch.Tensor:
-    out = src.new_full((dim_size,) + src.shape[1:], float('-inf'))
-    for i in range(src.shape[0]):
-        out[index[i]] = torch.maximum(out[index[i]], src[i])
-    out[out == float('-inf')] = 0.0
-    return out
+    """Autograd-safe scatter max without in-place read/write aliasing."""
+    groups = []
+    for g in range(dim_size):
+        mask = index == g
+        if torch.any(mask):
+            groups.append(src[mask].max(dim=0).values)
+        else:
+            groups.append(src.new_zeros(src.shape[1:]))
+    return torch.stack(groups, dim=0)
 
 
 def scatter_softmax(logits: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch.Tensor:
-    max_per = logits.new_full((dim_size,), float('-inf'))
-    for i, idx in enumerate(index):
-        max_per[idx] = max(max_per[idx], logits[i])
+    """Group softmax avoiding in-place writes on tensors participating in autograd."""
+    max_vals = []
+    for g in range(dim_size):
+        mask = index == g
+        if torch.any(mask):
+            max_vals.append(logits[mask].max())
+        else:
+            max_vals.append(logits.new_tensor(float('-inf')))
+    max_per = torch.stack(max_vals, dim=0)
+
     stable = logits - max_per[index]
     expv = torch.exp(stable)
     denom = logits.new_zeros(dim_size)
