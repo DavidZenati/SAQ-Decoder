@@ -24,8 +24,8 @@ If dependencies are missing, scripts now raise a clear startup error with instal
 Use the `--family` flag on CLI:
 
 ```bash
-python train.py --family rotated --distances 5,7,9,11 --p-init 0.05 --p-final 0.2 --n-p 4 --steps 100
-python train.py --family toric --distances 7,9,11 --p-init 0.05 --p-final 0.2 --n-p 4 --steps 100
+python train.py --family rotated --distances 5,7,9,11 --p-init 0.05 --p-final 0.2 --n-p 4 --epochs 20 --n-batches-per-p 5 --batch-size 32
+python train.py --family toric --distances 7,9,11 --p-init 0.05 --p-final 0.2 --n-p 4 --epochs 20 --n-batches-per-p 5 --batch-size 32
 
 python evaluate.py --family rotated --distance 9 --samples 8
 python evaluate.py --family toric --distance 9 --samples 8
@@ -40,8 +40,9 @@ Internally this is selected in `precompute_distance(..., family=...)`, which cal
 Training is distance-mixed by design in `train.py`:
 
 - pass `--distances` as a comma-separated list
-- each optimizer step uniformly samples one distance from that list
-- each sampled distance uses its own precomputed cache
+- each epoch covers **all distances** and **all p bins**
+- for each (distance, p-bin) pair, run `--n-batches-per-p` batches
+- each batch has `--batch-size` independently generated samples
 - error-probability grid is configured via `--p-init`, `--p-final`, `--n-p`
 
 For example, `--p-init 0.05 --p-final 0.2 --n-p 4` gives
@@ -50,7 +51,7 @@ For example, `--p-init 0.05 --p-final 0.2 --n-p 4` gives
 Example:
 
 ```bash
-python train.py --family rotated --distances 5,7,9,11 --p-init 0.05 --p-final 0.2 --n-p 4 --steps 200
+python train.py --family rotated --distances 5,7,9,11 --p-init 0.05 --p-final 0.2 --n-p 4 --epochs 5 --n-batches-per-p 10 --batch-size 64 --log-file logs/train.txt
 ```
 
 ## Where data is generated
@@ -65,8 +66,12 @@ Data is generated on-the-fly in:
 ## Quickstart
 
 ```bash
-python train.py --family rotated --distances 5,7,9,11 --p-init 0.05 --p-final 0.2 --n-p 4 --steps 10
+python train.py --family rotated --distances 5,7,9,11 --p-init 0.05 --p-final 0.2 --n-p 4 --epochs 1 --n-batches-per-p 2 --batch-size 8 --log-file train_log.txt
 python evaluate.py --family rotated --distance 7
 ```
 
 These scripts run single-sample (or tiny-sample) sanity flows on generated CSS-like codes.
+
+
+Training writes per-epoch statistics to a CSV-like TXT log (default `train_log.txt`) with columns:
+`epoch,steps,loss_mean,loss_min,loss_max,distances,p_grid,batch_size,n_batches_per_p`.

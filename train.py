@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import random
-
+from pathlib import Path
 
 
 def check_required_dependencies() -> None:
@@ -38,20 +38,32 @@ def build_p_grid(p_init: float, p_final: float, n_p: int) -> list[float]:
     return [float(p_init + i * step) for i in range(n_p)]
 
 
+def _batch_loss(model, combined_loss, cfg, make_single_sample, cache, p: float, batch_size: int):
+    losses = []
+    for _ in range(batch_size):
+        sample = make_single_sample(cache, p=p)
+        out = model(sample)
+        loss, _ = combined_loss(out, sample, cfg)
+        losses.append(loss)
+    return sum(losses) / len(losses)
+
+
 def run_train(
     distances: list[int],
     family: str = 'rotated',
     p_init: float = 0.05,
     p_final: float = 0.2,
     n_p: int = 4,
-    steps: int = 1,
+    epochs: int = 1,
+    n_batches_per_p: int = 1,
+    batch_size: int = 8,
     seed: int = 0,
+    log_file: str = 'train_log.txt',
 ):
-    """Run a minimal multi-distance training loop.
+    """Epoch training schedule that covers full p-range for each distance.
 
-    - Distance is sampled uniformly from `distances` each step.
-    - Physical error probability is sampled uniformly from a binned grid
-      spanning [p_init, p_final] with n_p bins.
+    For each epoch, iterate all distances, all p bins, and N batches per p-bin.
+    Total optimizer steps per epoch = len(distances) * n_p * n_batches_per_p.
     """
     check_required_dependencies()
     import torch
@@ -79,32 +91,51 @@ def run_train(
     model = BANRSAQ(cfg, logical_classes=logical_classes)
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
-    losses = []
-    sampled_distances = []
-    sampled_ps = []
-    for _ in range(steps):
-        d = random.choice(distances)
-        p = random.choice(p_grid)
-        sampled_distances.append(d)
-        sampled_ps.append(p)
+    log_path = Path(log_file)
+    if not log_path.parent.exists():
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open('w', encoding='utf-8') as f:
+        f.write('epoch,steps,loss_mean,loss_min,loss_max,distances,p_grid,batch_size,n_batches_per_p\n')
 
-        batch = make_single_sample(caches[d], p=p)
-        out = model(batch)
-        loss, _ = combined_loss(out, batch, cfg)
+    epoch_stats = []
+    for epoch in range(1, epochs + 1):
+        step_losses = []
+        work_items = [(d, p, b) for d in distances for p in p_grid for b in range(n_batches_per_p)]
+        random.shuffle(work_items)
 
-        optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
-        optimizer.step()
-        losses.append(float(loss.item()))
+        for d, p, _ in work_items:
+            loss = _batch_loss(model, combined_loss, cfg, make_single_sample, caches[d], p=p, batch_size=batch_size)
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
+            optimizer.step()
+            step_losses.append(float(loss.item()))
+
+        stats = {
+            'epoch': epoch,
+            'steps': len(work_items),
+            'loss_mean': sum(step_losses) / max(1, len(step_losses)),
+            'loss_min': min(step_losses) if step_losses else 0.0,
+            'loss_max': max(step_losses) if step_losses else 0.0,
+            'distances': distances,
+            'p_grid': p_grid,
+            'batch_size': batch_size,
+            'n_batches_per_p': n_batches_per_p,
+        }
+        epoch_stats.append(stats)
+
+        with log_path.open('a', encoding='utf-8') as f:
+            f.write(
+                f"{stats['epoch']},{stats['steps']},{stats['loss_mean']:.6f},{stats['loss_min']:.6f},{stats['loss_max']:.6f},"
+                f"\"{stats['distances']}\",\"{stats['p_grid']}\",{batch_size},{n_batches_per_p}\n"
+            )
 
     return {
-        'loss_mean': sum(losses) / max(1, len(losses)),
-        'loss_last': losses[-1],
-        'sampled_distances': sampled_distances,
-        'sampled_ps': sampled_ps,
-        'p_grid': p_grid,
         'family': family,
+        'epochs': epochs,
+        'epoch_stats': epoch_stats,
+        'p_grid': p_grid,
+        'log_file': str(log_path),
     }
 
 
@@ -116,14 +147,17 @@ def _parse_distances(distances_arg: str) -> list[int]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='BANR-SAQ minimal multi-distance training script.')
+    parser = argparse.ArgumentParser(description='BANR-SAQ training script with full p-range coverage per epoch.')
     parser.add_argument('--distances', type=str, default='5,7,9,11', help='Comma-separated distances, e.g. "5,7,9,11"')
     parser.add_argument('--family', type=str, default='rotated', choices=['rotated', 'toric'])
     parser.add_argument('--p-init', type=float, default=0.05, help='Initial physical error probability.')
     parser.add_argument('--p-final', type=float, default=0.2, help='Final physical error probability.')
     parser.add_argument('--n-p', type=int, default=4, help='Number of bins in [p-init, p-final].')
-    parser.add_argument('--steps', type=int, default=1, help='Number of optimizer steps')
+    parser.add_argument('--epochs', type=int, default=1)
+    parser.add_argument('--n-batches-per-p', type=int, default=1, help='Number of batches per p-bin for each distance each epoch.')
+    parser.add_argument('--batch-size', type=int, default=8, help='Samples per batch.')
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--log-file', type=str, default='train_log.txt')
     args = parser.parse_args()
 
     distances = _parse_distances(args.distances)
@@ -133,8 +167,11 @@ def main():
         p_init=args.p_init,
         p_final=args.p_final,
         n_p=args.n_p,
-        steps=args.steps,
+        epochs=args.epochs,
+        n_batches_per_p=args.n_batches_per_p,
+        batch_size=args.batch_size,
         seed=args.seed,
+        log_file=args.log_file,
     )
     summary['data_generation'] = 'banr_saq/data/batch_builder.py:make_single_sample'
     print(summary)
