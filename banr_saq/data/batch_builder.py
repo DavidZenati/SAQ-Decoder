@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
 import torch
 
 from .noise_sampler import sample_depolarizing, syndrome_from_error

@@ -9,6 +9,16 @@ This repository includes a BANR-SAQ baseline implementation with:
 - CPND post-processing helpers (`banr_saq/postprocess/cpnd.py`)
 - Minimal train/eval scripts (`train.py`, `evaluate.py`)
 
+## Installation
+
+Install dependencies before running train/eval:
+
+```bash
+pip install -r requirements.txt
+```
+
+If dependencies are missing, scripts now raise a clear startup error with install hints.
+
 ## Where to choose toric vs rotated
 
 Use the `--family` flag on CLI:

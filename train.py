@@ -1,15 +1,30 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import random
 
-import torch
 
-from banr_saq.config import BANRSAQConfig
-from banr_saq.data.batch_builder import make_single_sample
-from banr_saq.data.precompute import precompute_distance
-from banr_saq.losses.combined_loss import combined_loss
-from banr_saq.models.banr_saq import BANRSAQ
+
+def check_required_dependencies() -> None:
+    required = {
+        'torch': 'pip install -r requirements.txt',
+        'numpy': 'pip install -r requirements.txt',
+        'scipy': 'pip install -r requirements.txt',
+    }
+    missing = []
+    for pkg in required:
+        try:
+            importlib.import_module(pkg)
+        except Exception:
+            missing.append(pkg)
+    if missing:
+        hints = '\n'.join(f"  - {m}: {required[m]}" for m in missing)
+        raise RuntimeError(
+            'Missing required dependencies for training:\n'
+            + hints
+            + '\nInstall all with: pip install -r requirements.txt'
+        )
 
 
 def build_p_grid(p_init: float, p_final: float, n_p: int) -> list[float]:
@@ -38,6 +53,15 @@ def run_train(
     - Physical error probability is sampled uniformly from a binned grid
       spanning [p_init, p_final] with n_p bins.
     """
+    check_required_dependencies()
+    import torch
+
+    from banr_saq.config import BANRSAQConfig
+    from banr_saq.data.batch_builder import make_single_sample
+    from banr_saq.data.precompute import precompute_distance
+    from banr_saq.losses.combined_loss import combined_loss
+    from banr_saq.models.banr_saq import BANRSAQ
+
     random.seed(seed)
     p_grid = build_p_grid(p_init, p_final, n_p)
 

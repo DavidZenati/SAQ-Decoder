@@ -1,16 +1,40 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 
-import torch
 
-from banr_saq.config import BANRSAQConfig
-from banr_saq.data.batch_builder import make_single_sample
-from banr_saq.data.precompute import precompute_distance
-from banr_saq.models.banr_saq import BANRSAQ
+
+def check_required_dependencies() -> None:
+    required = {
+        'torch': 'pip install -r requirements.txt',
+        'numpy': 'pip install -r requirements.txt',
+        'scipy': 'pip install -r requirements.txt',
+    }
+    missing = []
+    for pkg in required:
+        try:
+            importlib.import_module(pkg)
+        except Exception:
+            missing.append(pkg)
+    if missing:
+        hints = '\n'.join(f"  - {m}: {required[m]}" for m in missing)
+        raise RuntimeError(
+            'Missing required dependencies for evaluation:\n'
+            + hints
+            + '\nInstall all with: pip install -r requirements.txt'
+        )
 
 
 def evaluate_distance(d: int = 7, family: str = 'rotated', n_samples: int = 4, p: float = 0.1) -> dict:
+    check_required_dependencies()
+    import torch
+
+    from banr_saq.config import BANRSAQConfig
+    from banr_saq.data.batch_builder import make_single_sample
+    from banr_saq.data.precompute import precompute_distance
+    from banr_saq.models.banr_saq import BANRSAQ
+
     cfg = BANRSAQConfig()
     cache = precompute_distance(d, family=family)
     logical_classes = 2 ** cache['L'].shape[0]
