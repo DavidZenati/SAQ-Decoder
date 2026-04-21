@@ -1,16 +1,5 @@
 # SAQ-Decoder: Stabilizer-Aware Quantum Error Correction Decoder
 
-<p align="center">
-  <img src="assets/architecture.png" alt="SAQ-Decoder Architecture" width="85%"/>
-</p>
-
-<p align="center">
-  <a href="https://openreview.net/forum?id=XXXXXXX"><img src="https://img.shields.io/badge/ICLR_2026-Conference_Paper-blue" alt="ICLR 2026"/></a>
-  <a href="https://arxiv.org/abs/XXXX.XXXXX"><img src="https://img.shields.io/badge/arXiv-preprint-red" alt="arXiv"/></a>
-  <a href="https://github.com/DavidZenati/SAQ-Decoder/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"/></a>
-  <img src="https://img.shields.io/badge/python-3.8%2B-blue" alt="Python"/>
-  <img src="https://img.shields.io/badge/pytorch-2.0%2B-orange" alt="PyTorch"/>
-</p>
 
 > **SAQ: Stabilizer-Aware Quantum Error Correction Decoder**  
 > David Zenati, Eliya Nachmani  
@@ -219,4 +208,4 @@ If you find this work useful, please cite:
 
 ## Acknowledgements
 
-We build on the QECCT decoder implementation from [Choukroun & Wolf (2023)] (https://github.com/yoniLc/DQEC/),we also build on the toric code implementation from [Krastanov & Jiang (2017)](https://github.com/Krastanov/neural-decoder/) 
+We build on the QECCT decoder implementation from [Choukroun & Wolf (2023)](https://github.com/yoniLc/DQEC/), we also build on the toric code implementation from [Krastanov & Jiang (2017)](https://github.com/Krastanov/neural-decoder/) 
